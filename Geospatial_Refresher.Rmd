@@ -1,0 +1,377 @@
+---
+title: "Geospatial R(efresher)"
+author: "J. J. Fain"
+date: "1/25/2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=F, echo=F}
+r <- getOption("repos")
+r["CRAN"] <- "http://cran.cnr.berkeley.edu/"
+options(repos = r)
+
+("/Users//fainjj/Documents/Coding/Workshop")
+```
+
+# Outline
+This is designed to be a refresher for data manipulation in R. First we will start with simple tabular data, then we will move on to spatial vector data. If this is your first time using R for spatial applications, you may be pleasantly surprised to discover just how similar tabular and spatial data behave.
+
+***
+# Packages & Setup
+Start by installing the required packages. We are using *dplyr* with the simple features library, *sf*. *Ggplot2* will be our plotting library for vector data, *ggmap* will be used for rasters. *Rgdal* operates in the background and gives us access to a powerful library of C functions that can significantly speed-up our analyses. *Spdep* has a ton of functions for spatial statistics and point pattern analysis.
+
+Notice that this is just checking if packages are installed, and installing them if they aren't. Behind the scenes, this downloads and compiles binaries of the packages.
+
+```{r}
+if(!require(ggplot2)){
+  install.packages('ggplot2')
+}
+
+if(!require(rgdal)){
+  install.packages('rgdal')
+}
+
+if(!require(gdalUtils)){
+  install.packages('gdalUtils')
+}
+
+if(!require(raster)){
+  install.packages('raster')
+}
+
+if(!require(sf)){
+  install.packages('sf')
+}
+
+if(!require(spdep)){
+  install.packages('spdep')
+}
+
+if(!require(ggmap)){
+  install.packages('ggmap')
+}
+
+if(!require(dplyr)){
+  install.packages('dplyr')
+}
+```
+
+Now that all packages are installed we will use **require** to attach the packages above.
+```{r}
+# raster
+require(raster)
+# ggplot2
+require(ggplot2)
+# rgdal
+require(rgdal)
+# gdalUtils
+require(gdalUtils)
+# sf
+require(sf)
+# spdep
+require(spdep)
+# ggmap
+require(ggmap)
+# dplyr
+require(dplyr)
+```
+
+## Set Working Directory
+The function **setwd** changes the R session's current working directory. This is equivalent to the cd/chdir commands that you may be familiar with. We can double check that **setwd** changed our directory to the place we intended with the command **getwd**, which simply returns the file path of the current directory.
+
+Also note that filepaths in R are somewhat system dependent. You will either need to use double backslashes (\\\\) if you are more comfortable with the Windows style, or a single forward slash (/) to separate directories like you would on a Mac OS.
+```{r}
+# Point this to your workshop file folder
+setwd("/Users/fainjj/Documents/Coding/Workshop")
+
+# Make sure this matches what you typed above
+getwd()
+```
+
+## Explore Files
+At this point it is a good idea to use the **list.files** function to make sure that the things we need moving forward are in the directory we just moved to.
+```{r}
+list.files()
+```
+
+
+***
+# Reading Tabular Data
+We should have a shapefile of 0-level administrative boundaries as well as a csv of information about those countries. We can deal with the shapefile later on.
+```{r}
+dvlp <- read.csv('country_info.csv', stringsAsFactors = FALSE)
+```
+
+Now we can use the **head** and **tail** functions to check the data we loaded.
+```{r}
+head(dvlp)
+tail(dvlp)
+```
+Looks good! Since we have a large table, we will use **head** a lot to avoid printing every row since that would quickly fill-up the console.
+
+***
+# Functions
+
+## Definitions
+Defining functions in R is very similar to variable assignment. Here we will make our first function to raise 10 to any arbitrary exponent.
+```{r}
+pow10 <- function(pwr){
+  return(10^pwr)
+}
+```
+
+Take this function for a spin to make sure it behaves as expected.
+```{r}
+pow10(3)
+pow10(4)
+```
+
+## Closures: Functions really do write themselves
+We can also write a *closure* which is a function for creating functions. Think of these as function templates. Below is a *closure* which further generalizes our exponential functions. This allows us to use the same template to quickly make functions for similar tasks such as finding the nth root of a number.
+
+```{r}
+nth_rt <- function(pwr){
+  function(b){b^(1/pwr)}
+}
+
+sqrt <- nth_rt(2)
+
+sqrt(9)
+sqrt(256)
+sqrt(39601)
+
+cbrt <- nth_rt(3)
+
+cbrt(64)
+cbrt(729)
+cbrt(1728)
+```
+More about closures: http://adv-r.had.co.nz/Functional-programming.html#closures
+
+***
+# Vectors & Data Frames
+
+## Vectors
+Vectors are the most basic groupings of information in R.
+**typeof** tells you the data type stored in the vector.
+**class** tells you what mode the vector is (logical, numeric, character).
+**length** does exactly what you would expect and returns the numeric length of your vector.
+```{r}
+x1 <- c(1,2,3)
+c(typeof(x1), class(x1), length(x1))
+
+x2 <- c('a','b','c')
+c(typeof(x2), class(x2), length(x2))
+
+x3 <- c(1, TRUE, 3, 'four')
+c(typeof(x3), class(x3), length(x3))
+```
+Notice that in x3, everything became a character. Vectors can not be of mixed type, so they are silently converted to the same type. This is explained in the details of the **c** function's help documentation:
+*The output type is determined from the highest type of the components in the hierarchy NULL < raw < logical < integer < double < complex < character < list < expression.*
+
+## Data Frames
+Now that we have two vectors, we can mash them into a data frame.
+```{r}
+df <- data.frame(x1, x2)
+View(df)
+```
+
+
+Back to our countries data, let's go ahead and check out the structure and dimensions with **str** and **dim**.
+```{r}
+str(dvlp)
+dim(dvlp)
+names(dvlp)
+summary(dvlp)
+```
+We see that there are 1704 rows (observations), each with 6 columns (variables). This is a 5-year development index data set for a bunch of countries. The **names** function gives us the variable (column) names which should match the csv header row. The **summary** function gives us a bunch of information very quickly, but it isn't particularly useful at this point since there are multiple countries with 5 entries each.
+
+***
+# Sequences and Indexing in R
+
+## Sequences
+These are all equivalent ways of creating a numeric sequence from 1 to 3.
+```{r}
+c(1, 2, 3) # too much typing
+1:3 # faster, but somewhat hard to read
+seq(1, 3) # powerful and versatile 
+```
+All of those are perfectly valid but **seq** takes an extra few arguments which tend to make it the most useful in practice. The 'by' argument lets you choose the size of your steps between each item in the sequence. Check out the other arguments on the help page.
+```{r}
+seq(1, 10, by = 2)
+```
+
+## Indexing
+You can use square brackets to subset data frames. This follows the pattern *data[row, col]*. Leaving either of the indices blank will select all of that row or column.
+```{r, R.options=list(max.print=25)}
+dvlp[1,] # First row, all columns
+dvlp[,1] # All rows, first column
+dvlp[1,5] # First row, fifth column 
+```
+You can also subset by sequences.
+```{r}
+dvlp[1:3, 5]
+# You can mix your sequence-building methods when subsetting
+dvlp[1:5, c(1, 4, 5)] # indices don't even have to be continuous
+dvlp[1:6, ] # equivalent to the head() function
+```
+
+Even better, we can take advantage of the column names we saw earlier.
+```{r}
+s1 <- dvlp[ , 'year']
+head(s1)
+# The dollar sign notation also works for subsetting columns
+s1 <- dvlp$year
+head(s1)
+```
+
+Use **nrow** and **seq** to create a new data frame containing every 100th row of the dvlp df, starting at row 100.
+```{r}
+dvlp[seq(100, nrow(dvlp), 100), ]
+```
+**Seq** gives us a list of row indices from 100 to the max number of rows in dvlp, counting by 100.
+```{r}
+seq(from = 100, to = nrow(dvlp), by = 100)
+```
+
+All of this is helpful to know, but numeric indices aren't really all that useful in practice. We will look at a few other ways to subset things using conditional expressions
+```{r}
+(dvlp$lifeExp < 30)[1:6] # this is a logical vector
+typeof(dvlp$lifeExp < 30)
+length(dvlp$lifeExp < 30) # should be a logical vector of the same length as our input
+# The logical vector returned by dvlp$lifeExp < 30 can be used to subset
+dvlp[dvlp$lifeExp < 30, ]
+```
+
+***
+# Introducing dplyr
+Dplyr is a powerful data manipulation package. It is also incredibly fast since most of the functions are really just convenience wrappers for underlying C functions.
+
+If you just want to move a column to the front of a data frame, you can use some of *dplyr*'s super handy tools. Let's move the continents column to the front using **select** and **everything**.
+```{r}
+dvlp2 <- dplyr::select(dvlp, 'continent', everything())
+head(dvlp2)
+```
+
+Dplyr's **select** and **filter** functions allow you to subset data intuitively.
+```{r}
+output <- dplyr::select(dvlp, country, year, lifeExp)
+head(output)
+
+filter(dvlp, lifeExp < 30)
+```
+
+## More filtering and selecting using the pipe!
+This is the pipe: **%>%**
+It passes the left-hand side as the first argument to the function on the right-hand side. This lets you chain a bunch of operations together without nesting your functions. It is far more readable but can sometimes be a pain to debug.
+
+Let's look at how it can be used to make our code more human-readable.
+```{r}
+# Nested functions make it unclear what is our data, and what are variable names. They must be read from the inside-out.
+ind.dvlp <- dplyr::select(filter(dvlp, country == 'India'), year, lifeExp)
+
+# The pipe streamlines this process, allowing you to read from top to bottom through the workflow.
+ind.dvlp <- dvlp %>% 
+  filter(country == 'India') %>% 
+  select(year, lifeExp)
+
+ind.dvlp
+```
+
+#### Note:
+The package *magrittr* adds a few new types of pipe that I _love_ to use. My favorite is the reverse assignment pipe **%<>%** which passes the variable on the left-hand side into a pipeline, then reassigns the result to the variable on the left-hand side.
+
+It looks like this:  x %<>% f1() %>% f2()
+But works like this: x <- x %>% f1() %>% f2()
+
+## Negative indices
+We can also use **select** to drop variables from the table. If we only select entries from India, having the country variable becomes redundant. We could do something like this instead:
+```{r}
+dvlp %>%
+  filter(country == 'India') %>%
+  filter(year > 1992) %>% 
+  select(-country)
+```
+
+Rather than dropping variables, we can use **mutate** to add new columns. This calculates new values row-by-row.
+```{r}
+dvlp %>% 
+  mutate(gdpTotal = pop*gdpPercap) %>% 
+  head()
+```
+
+We can also use the **group_by** function to gather similar observations into distinct bundles that we can then perform operations on. 
+```{r}
+dvlp %>% 
+  group_by(year) %>% 
+  summarise(avgLifeExp = median(lifeExp)) %>% 
+  head()
+
+dvlp %>%
+  filter(year %in% c(2002, 2007)) %>%
+  group_by(country) %>%
+  summarise(meanGDP = mean(gdpPercap)) %>% 
+  head()
+```
+
+***
+# Ggplot2 and a new syntax
+
+The plotting library *ggplot2* allows you to build visualizations in an intuitive layer-by layer fashion. To represent this process, *ggplot2* uses a '+' to add new layers. This symbol also acts somewhat like the pipe, insomuch as it passes the first argument given to **ggplot** to all subsequent layers.
+```{r}
+ggplot(ind.dvlp, mapping = aes(x = year, y = lifeExp)) +
+  geom_line() +
+  geom_point()
+```
+
+Because *ggplot2* is an additive process, we can define a basemap and store it to a variable for use later. 
+```{r}
+base <- ggplot(data = ind.dvlp, mapping = aes(x = year, y = lifeExp))
+
+base + geom_bar(stat = 'identity') + geom_line(aes(color = 'red'))
+```
+
+Now we can combine all of these techniques to create some very impressive plots.
+```{r}
+gdp_exp <- ggplot(dvlp, mapping = aes(gdpPercap, lifeExp))
+
+gdp_exp +
+  geom_point(alpha = 0.3, mapping = aes(color = continent)) +
+  scale_x_log10() +
+  geom_smooth()
+```
+
+# Simple Features with the SF package
+
+The simple features library is a fast and easy way to store geometries. Under the hood, it is very similar to the way Post handles spatial data.
+```{r}
+unzip('ne_110m_admin_0_countries.zip')
+countries <- st_read('ne_110m_admin_0_countries.shp')
+```
+*Sf* also plays nicely with *ggplot2*.
+```{r}
+ggplot() +
+  geom_sf(data = countries, color = NA, mapping = aes(fill =CONTINENT)) + 
+  coord_sf()
+```
+
+***
+
+# Acknowledgements
+
+* Adapted in part from *Data Visualization in R* Workshop by K. Arthur Endsley
+  
+  - http://karthur.org/
+  - https://github.com/arthur-e 
+
+
+
+* *Advanced R* by Hadley Wickham.
+
+  - Available at http://adv-r.had.co.nz/ or in print
+
+***
+
+This handout was written in R Markdown
